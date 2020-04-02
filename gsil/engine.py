@@ -3,11 +3,8 @@
 """
     engine
     ~~~~~~
-
     Implements Github search engine
 
-    :author:    Feei <feei@feei.cn>
-    :homepage:  https://github.com/FeeiCN/gsil
     :license:   GPL, see LICENSE for more details.
     :copyright: Copyright (c) 2018 Feei. All rights reserved
 """
@@ -31,28 +28,15 @@ regex_mail = r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)"
 regex_host = r"@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)"
 regex_pass = r"(pass|password|pwd)"
 regex_title = r"<title>(.*)<\/title>"
-regex_ip = r"^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]))$"
+regex_ip = r"^((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})(\.((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})){3}$"
 regex_url = '(https://github.com/[a-zA-Z0-9_.+-]+/[a-zA-Z0-9_.+-]+)/\w+'
 
-# Increase the number of single pages to reduce the number of requests
-# https://developer.github.com/v3/#pagination
-# 每一页的数量（会影响到报告的效率）
 per_page = 50
-
-# TODO The number of pre calculated requests according to rule number and number of pages
-#
-# pages * per_page * rules = requests
-# 2 * 30 * 24 = 1440
-#
-# 默认扫描页数
 default_pages = 3
 
 
 class Engine(object):
     def __init__(self, token):
-        """
-        GitHub engine
-        """
         self.token = token
         self.g = Github(login_or_token=token, per_page=per_page)
         self.rule_object = None
@@ -216,7 +200,6 @@ class Engine(object):
 
             logger.info('[{k}] Get page {page} data for {count}'.format(k=self.rule_object.keyword, page=page, count=len(pages_content)))
             if not self.process_pages(pages_content, page, total):
-                # 若遇到处理过的，则跳过整个规则
                 break
             # 每一页发送一份报告
             for key, value in self.result.items():

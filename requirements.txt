@@ -1,5 +1,6 @@
+-i http://mirrors.aliyun.com/pypi/simple/
 beautifulsoup4==4.6.0
-PyGithub==1.35
+PyGithub==1.47
 IPy==0.83
 tld==0.7.9
 html5lib==0.999999999

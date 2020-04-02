@@ -1,7 +1,5 @@
 # GSIL(GitHub敏感信息泄露)
 
-[English documents](https://github.com/BlackHole1/GSIL/blob/master/README.md)
-
 > 近实时监控GitHub敏感信息泄露，并发送告警通知。
 
 ## 安装

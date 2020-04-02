@@ -3,12 +3,9 @@
 """
     GSIL
     ~~~~
-
     Implements Github Sensitive Information Leak
 
-    :author:    Feei <feei@feei.cn>
-    :homepage:  https://github.com/FeeiCN/gsil
-    :license:   GPL, see LICENSE for more details.
+    :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2018 Feei. All rights reserved
 """
 import sys
@@ -16,20 +13,15 @@ import time
 import random
 import traceback
 import multiprocessing
-from .engine import Engine
-from .log import logger
-from .config import Config, get_rules, tokens, daily_run_data
+from logging  import Formatter
+from pathlib  import Path
+from .engine  import Engine
+from .log     import logger
+from .config  import Config, get_rules, tokens, daily_run_data
 from .process import send_running_data_report
-
-import sys, time
-from logging import Formatter
-from pathlib import Path
-
 
 running_data = []
 
-
-# search single rule
 def search(idx, rule):
     """
     class instance can't pickle in apply_async
@@ -110,7 +102,6 @@ def gsil():
         start(sys.argv[1])
         # start generate report file
         generate_report(running_data)
-
 
 if __name__ == '__main__':
     gsil()
