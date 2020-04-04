@@ -1,0 +1,24 @@
+---
+mail:
+    enable: false
+    host: smtp.exmail.qq.com
+    port: 25
+    mails: your_mail
+    from: GSIL
+    password: your_password
+    to: goofts@zl.com
+    cc: goofts@zl.com
+
+github:
+    clone: false
+    tokens:
+        - your_github_token
+
+datase:
+    type: sqlite
+    ip: 127.0.0.1
+    port: 0
+    path: db
+    name: dev
+    connections: 8
+    timeout: 300

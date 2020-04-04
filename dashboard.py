@@ -1,30 +1,80 @@
+import os
 import sys
 import traceback
+import asyncio
 import dash, dash_table, pandas
 import dash_core_components as dcc
 import dash_html_components as html
 from pathlib  import Path
 from datetime import datetime
 from peewee   import Model, PrimaryKeyField, CharField, DateTimeField
-from gsil     import gsil
+from app      import gsil
 from dash.dependencies   import Input, Output
 from playhouse.pool      import PooledSqliteDatabase as sqlite
 from playhouse.shortcuts import ReconnectMixin as rcmx
 from gsil.notification   import Notification
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-class RetrySqLiteDatabase(rcmx, sqlite):
+
+dbpath: str = str(Path(self.APP_PATH) / Path('sqlitedb'))
+if not os.path.exists(dbpath):
+    os.mkdir(dbpath)
+
+dbfile: str = str(Path(dbpath) / Path('{0}.sqlite3'.format(self.DATABASE_NAME)))
+
+try:
+    from peewee import SqliteDatabase, sqlite3
+    from playhouse.pool import PooledDatabase
+    from playhouse.shortcuts import ReconnectMixin as rcmx
+except:
+    print ('please run "pip3 install -r requirements" to install packages first')
+    sys.exit(-1)
+
+class Sqlite3Database(SqliteDatabase):
+    def _connect(self):
+        if sqlite3 is None:
+            raise ImproperlyConfigured('SQLite driver not installed!')
+
+        conn = sqlite3.connect(
+            self.database,
+            timeout=self._timeout,
+            isolation_level=None,
+            check_same_thread=False,
+            **self.connect_params
+        )
+
+        try:
+            self._add_conn_hooks(conn)
+        except:
+            conn.close()
+            raise
+        return conn
+
+class _sqlite(PooledDatabase):
+    def _is_closed(self, conn):
+    try:
+        conn.total_changes
+    except:
+        return True
+        else:
+    return False
+
+class sqlite(_sqlite, Sqlite3Database):
+    pass
+
+class RetrySqliteDatabase(rcmx, sqlite):
     _instance = None
- 
+
     @staticmethod
     def get_sqlite_instance():
-        if not RetrySqLiteDatabase._instance:
-            RetrySqLiteDatabase._instance = RetrySqLiteDatabase(
-                str(Path(str(Path(__file__).parent)) / Path('sqlitedb') / Path('github')),
-                max_connections=8
-            )
-        return RetrySqLiteDatabase._instance
+    if not RetrySqliteDatabase._instance:
+        RetrySqliteDatabase._instance = RetrySqliteDatabase(
+            dbfile,
+            max_connections=self.MAX_CONNECTIONS_LENGTH
+        )
+    return RetrySqliteDatabase._instance
 
-db: sqlite = RetrySqLiteDatabase.get_sqlite_instance()
+db: sqlite = RetrySqliteDatabase.get_sqlite_instance()
 
 app = dash.Dash(__name__)
 
@@ -93,4 +143,11 @@ def search_ta_for_release(intervals):
     return ta_data.to_dict('records')
 
 if __name__ == '__main__':
-    app.run_server(debug=True, host='0.0.0.0', port=8000)
+    try:
+        scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
+        scheduler.add_job(gsil, 'cron', hour="*/2")
+        scheduler.start()
+        app.run_server(debug=True, host='0.0.0.0', port=8000)
+    except Exception as e:
+        content = '{a}\r\n{e}'.format(a=' '.join(sys.argv), e=traceback.format_exc())
+        Notification('GSIL Exception').notification(content)

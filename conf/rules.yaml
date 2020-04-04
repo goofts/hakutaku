@@ -1,0 +1,6 @@
+---
+test:
+    mogujie.com:
+        "\"mogujie.org\"":
+            mode: normal-match
+            ext: php,java,python,go,js,properties

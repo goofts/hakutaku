@@ -3,12 +3,9 @@
 """
     config
     ~~~~~~
-
     Implements configuration
 
-    :author:    Feei <feei@feei.cn>
-    :homepage:  https://github.com/FeeiCN/gsil
-    :license:   GPL, see LICENSE for more details.
+    :license:   MIT, see LICENSE for more details.
     :copyright: Copyright (c) 2018 Feei. All rights reserved
 """
 import os
@@ -46,17 +43,6 @@ def get(level1=None, level2=None):
         print("GSIL/config.gsil file configure failed.\nError: {0}".format(e))
     return value
 
-
-# GitHub tokens
-try:
-    tokens = get('github', 'tokens')
-    if ',' in tokens:
-        tokens = tokens.split(',')
-    else:
-        tokens = [tokens]
-except Exception as e:
-    logger.critical('github -> tokens sections error {e}'.format(e=traceback.format_exc()))
-    exit(0)
 
 exclude_repository_rules = [
     #
