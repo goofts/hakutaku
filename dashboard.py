@@ -86,6 +86,6 @@ if __name__ == '__main__':
         scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
         scheduler.add_job(gsil, 'cron', hour="*/2")
         scheduler.start()
-        app.run_server(debug=True, host='0.0.0.0', port=8000)
+        app.run_server(debug=True, host='0.0.0.0', port=18000)
     except Exception as e:
         content = '{a}\r\n{e}'.format(a=' '.join(sys.argv), e=traceback.format_exc())
