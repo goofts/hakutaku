@@ -1,11 +1,13 @@
 ---
 test:
-    guahao.com:
+    enable: true
+    rules:
         guahao.com:
-            mode: normal-match
-            ext: php,java,python,go,js,properties
-            line: 5
-        wedoctor:
-            mode: only-match
-            ext: php,java,python,go,js,properties
-            line: 5
+            guahao.com:
+                mode: normal-match
+                ext: php,java,python,go,js,properties
+                line: 5
+            wedoctor:
+                mode: only-match
+                ext: php,java,python,go,js,properties
+                line: 5

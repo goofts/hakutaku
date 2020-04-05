@@ -57,28 +57,31 @@ def search(index, rule):
 def start():
     with open(RULES_PATH, "r") as f:
         RULES: dict = yaml.load(''.join(f.readlines()), Loader=yaml.SafeLoader)
-    print (RULES)
+
     rules_objects = []
-    for types, rule_list in RULES.items():
-        for corp_name, corp_rules in rule_list.items():
-            for rule_keyword, rule_attr in corp_rules.items():
-                rule_keyword = rule_keyword.strip()
-                corp_name = corp_name.strip()
-                types = types.upper()
-                if 'mode' in rule_attr:
-                    mode = rule_attr['mode'].strip().lower()
-                else:
-                    mode = 'normal-match'
-                if 'ext' in rule_attr:
-                    extension = rule_attr['ext'].strip()
-                else:
-                    extension = 'php,java'
-                if 'line' in rule_attr:
-                    lines = rule_attr['line']
-                else:
-                    lines = 5
-                rule = Rule(types, corp_name, rule_keyword, mode, extension, lines)
-                rules_objects.append(rule)
+    for types, config in RULES.items():
+        if config['enable']:
+            for corp_name, corp_rules in config['rules'].items():
+                for rule_keyword, rule_attr in corp_rules.items():
+                    rule_keyword = rule_keyword.strip()
+                    corp_name = corp_name.strip()
+                    types = types.upper()
+                    if 'mode' in rule_attr:
+                        mode = rule_attr['mode'].strip().lower()
+                    else:
+                        mode = 'normal-match'
+                    if 'ext' in rule_attr:
+                        extension = rule_attr['ext'].strip()
+                    else:
+                        extension = 'php,java'
+                    if 'line' in rule_attr:
+                        lines = rule_attr['line']
+                    else:
+                        lines = 5
+                    rule = Rule(types, corp_name, rule_keyword, mode, extension, lines)
+                    rules_objects.append(rule)
+        else:
+            continue
     pool = multiprocessing.Pool()
     for index, rule_object in enumerate(rules_objects):
         time.sleep(1)
