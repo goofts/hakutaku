@@ -8,21 +8,22 @@
     :license:   GPL, see LICENSE for more details.
     :copyright: Copyright (c) 2018 Feei. All rights reserved
 """
-import re, json, hashlib
+import re
+import time
+import json
+import hashlib
 import socket
 import traceback
 import requests
 from github import Github, GithubException
-from bs4 import BeautifulSoup
-from gsil.config import Config, public_mail_services, exclude_repository_rules, exclude_codes_rules
-from .process import Process, clone
-from IPy import IP
-from tld import get_tld
-from .log import logger
-from gsil.orm import db, GITHUB
+from bs4    import BeautifulSoup
+from IPy    import IP
+from tld    import get_tld
+from app.orm import DB, repository, hashlist
 
-if not GITHUB.table_exists():
-    GITHUB.create_table()
+if not repository.table_exists():
+    repository.create_table()
+    hashlist.create_table()
 
 regex_mail = r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)"
 regex_host = r"@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)"
@@ -31,235 +32,57 @@ regex_title = r"<title>(.*)<\/title>"
 regex_ip = r"^((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})(\.((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})){3}$"
 regex_url = '(https://github.com/[a-zA-Z0-9_.+-]+/[a-zA-Z0-9_.+-]+)/\w+'
 
-per_page = 50
-default_pages = 3
-
-
 class Engine(object):
-    def __init__(self, token):
-        self.token = token
-        self.g = Github(login_or_token=token, per_page=per_page)
+    def __init__(self, user, pages, mail, repo, codes):
+        self.pages = pages
+        self.mail  = mail
+        self.repo  = repo
+        self.codes = codes
+        self.per_page = int(1000/pages)
+        self.g = Github(user["name"], user["passwd"], per_page=self.per_page)
+        self.result = None
+        self.exclude_result = None
         self.rule_object = None
+
         self.code = ''
-        # jquery/jquery
-        self.full_name = ''
+        self.name = ''
         self.sha = ''
         self.url = ''
-        # src/attributes/classes.js
         self.path = ''
 
-        self.result = None
-        # 被排除掉的结果，为防止误报，将发送邮件人工核查
-        self.exclude_result = None
-        self.hash_list = None
-        self.processed_count = None
-        self.next_count = None
-
-    def process_pages(self, pages_content, page, total):
-        for index, content in enumerate(pages_content):
-            current_i = page * per_page + index
-            base_info = '[{k}] [{current}/{count}]'.format(k=self.rule_object.keyword, current=current_i, count=total)
-
-            # 没有处理成功的，且遇到三个已处理的则跳过之后所有的
-            if self.next_count == 0 and self.processed_count > 3:
-                logger.info('{b} Has encountered {pc} has been processed, skip the current rules!'.format(b=base_info, pc=self.processed_count))
-                return False
-
-            # html_url
-            self.url = content.html_url
-
-            # sha
-            try:
-                self.sha = content.sha
-            except Exception as e:
-                logger.warning('sha exception {e}'.format(e=e))
-                self.sha = ''
-                self.url = ''
-
-            if self.sha in self.hash_list:
-                # pass already processed
-                logger.info('{b} Processed, skip! ({pc})'.format(b=base_info, pc=self.processed_count))
-                self.processed_count += 1
-                continue
-
-            # path
-            self.path = content.path
-
-            # full name
-            self.full_name = content.repository.full_name.strip()
-            if self._exclude_repository():
-                # pass exclude repository
-                logger.info('{b} Excluded because of the path, skip!'.format(b=base_info))
-                continue
-
-            # code
-            try:
-                self.code = content.decoded_content.decode('utf-8')
-            except Exception as e:
-                logger.warning('Get Content Exception: {e} retrying...'.format(e=e))
-                continue
-
-            match_codes = self.codes()
-            if len(match_codes) == 0:
-                logger.info('{b} Did not match the code, skip!'.format(b=base_info))
-                continue
-            result = {
-                'url': self.url,
-                'match_codes': match_codes,
-                'hash': self.sha,
-                'code': self.code,
-                'repository': self.full_name,
-                'path': self.path,
-            }
-            if self._exclude_codes(match_codes):
-                logger.info('{b} Code may be useless, do not skip, add to list to be reviewed!'.format(b=base_info))
-                self.exclude_result[current_i] = result
-            else:
-                self.result[current_i] = result
-
-            # 独立进程下载代码
-            git_url = content.repository.html_url
-            clone(git_url, self.sha)
-            logger.info('{b} Processing is complete, the next one!'.format(b=base_info))
-            self.next_count += 1
-
-        return True
-
-    def verify(self):
-        try:
-            ret = self.g.rate_limiting
-            return True, 'TOKEN-PASSED: {r}'.format(r=ret)
-        except GithubException as e:
-            return False, 'TOKEN-FAILED: {r}'.format(r=e)
-
-    def search(self, rule_object):
-        """
-        Search content by rule on GitHub
-        :param rule_object:
-        :return: (ret, rule, msg)
-        """
-        self.rule_object = rule_object
-
-        # 已经处理过的数量
-        self.processed_count = 0
-        # 处理成功的数量
-        self.next_count = 0
-
-        # max 5000 requests/H
-        try:
-            rate_limiting = self.g.rate_limiting
-            rate_limiting_reset_time = self.g.rate_limiting_resettime
-            logger.info('----------------------------')
-
-            # RATE_LIMIT_REQUEST: rules * 1
-            # https://developer.github.com/v3/search/#search-code
-            ext_query = ''
-            if self.rule_object.extension is not None:
-                for ext in self.rule_object.extension.split(','):
-                    ext_query += 'extension:{ext} '.format(ext=ext.strip().lower())
-            keyword = '{keyword} {ext}'.format(keyword=self.rule_object.keyword, ext=ext_query)
-            logger.info('Search keyword: {k}'.format(k=keyword))
-            resource = self.g.search_code(keyword, sort="indexed", order="desc")
-        except GithubException as e:
-            msg = 'GitHub [search_code] exception(code: {c} msg: {m} {t}'.format(c=e.status, m=e.data, t=self.token)
-            logger.critical(msg)
-            return False, self.rule_object, msg
-
-        logger.info('[{k}] Speed Limit Results (Remaining Times / Total Times): {rl}  Speed limit reset time: {rlr}'.format(k=self.rule_object.keyword, rl=rate_limiting, rlr=rate_limiting_reset_time))
-        logger.info('[{k}] The expected number of acquisitions: {page}(Pages) * {per}(Per Page) = {total}(Total)'.format(k=self.rule_object.keyword, page=default_pages, per=per_page, total=default_pages * per_page))
-
-        # RATE_LIMIT_REQUEST: rules * 1
-        try:
-            total = resource.totalCount
-            logger.info('[{k}] The actual number: {count}'.format(k=self.rule_object.keyword, count=total))
-        except socket.timeout as e:
-            return False, self.rule_object, e
-        except GithubException as e:
-            msg = 'GitHub [search_code] exception(code: {c} msg: {m} {t}'.format(c=e.status, m=e.data, t=self.token)
-            logger.critical(msg)
-            return False, self.rule_object, msg
-
-        self.hash_list = Config().hash_list()
-        if total < per_page:
-            pages = 1
-        else:
-            pages = default_pages
-        for page in range(pages):
-            self.result = {}
-            self.exclude_result = {}
-            try:
-                # RATE_LIMIT_REQUEST: pages * rules * 1
-                pages_content = resource.get_page(page)
-            except socket.timeout:
-                logger.info('[{k}] [get_page] Time out, skip to get the next page！'.format(k=self.rule_object.keyword))
-                continue
-            except GithubException as e:
-                msg = 'GitHub [get_page] exception(code: {c} msg: {m} {t}'.format(c=e.status, m=e.data, t=self.token)
-                logger.critical(msg)
-                return False, self.rule_object, msg
-
-            logger.info('[{k}] Get page {page} data for {count}'.format(k=self.rule_object.keyword, page=page, count=len(pages_content)))
-            if not self.process_pages(pages_content, page, total):
-                break
-            # 每一页发送一份报告
-            for key, value in self.result.items():
-                logger.error('[{types}] [{rule_name}] {url} {count}'.format(types=self.rule_object.types, rule_name=self.rule_object.corp, url=re.findall(regex_url, value['url'])[0], count=len(value['match_codes'])))
-                unique = json.dumps({'url':re.findall(regex_url, value['url'])[0], 'keyword':self.rule_object.corp}).encode('utf-8')
-                data = {
-                    'unique':hashlib.md5(unique).hexdigest()
-                    ,'url':re.findall(regex_url, value['url'])[0]
-                    ,'name':self.rule_object.corp
-                    ,'keyword':self.rule_object.keyword
-                    ,'count':len(value['match_codes'])
-                }
-                with db.connection_context():
-                    GITHUB.insert(data).on_conflict_ignore().execute()
-            # 暂时不发送可能存在的误报 TODO
-            # Process(self.exclude_result, self.rule_object).process(True)
-
-        logger.info('[{k}] The current rules are processed, the process of normal exit!'.format(k=self.rule_object.keyword))
-        return True, self.rule_object, len(self.result)
-
-    def codes(self):
-        # 去除图片的显示
-        self.code = self.code.replace('<img', '')
-        codes = self.code.splitlines()
+#     对关键词代码进行范围截取
+    def match_codes(self):
+        codes = self.code.replace('<img', '').splitlines()
         codes_len = len(codes)
         keywords = self._keywords()
-        match_codes = []
         if self.rule_object.mode == 'mail':
-            return self._mail()
-        elif self.rule_object.mode == 'only-match':
-            # only match mode(只匹配存在关键词的行)
-            for code in codes:
-                for kw in keywords:
-                    if kw in code:
-                        match_codes.append(code)
-            return match_codes
-        elif self.rule_object.mode == 'normal-match':
-            # normal-match（匹配存在关键词的行及其上下3行）
+            return self._mail(codes)
+        if self.rule_object.mode == 'only-match':
+            return codes
+        if self.rule_object.mode == 'normal-match':
+            match_codes = []
             for idx, code in enumerate(codes):
                 for keyword in keywords:
                     if keyword in code:
                         idxs = []
-                        # prev lines
-                        for i in range(-3, -0):
+                        for i in range(-1*self.rule_object.lines, -0):
                             i_idx = idx + i
                             if i_idx in idxs:
                                 continue
+                            
                             if i_idx < 0:
                                 continue
+                            
                             if codes[i_idx].strip() == '':
                                 continue
-                            logger.debug('P:{x}/{l}: {c}'.format(x=i_idx, l=codes_len, c=codes[i_idx]))
+                            
                             idxs.append(i_idx)
                             match_codes.append(codes[i_idx])
-                        # current line
+                        
                         if idx not in idxs:
-                            logger.debug('C:{x}/{l}: {c}'.format(x=idx, l=codes_len, c=codes[idx]))
                             match_codes.append(codes[idx])
-                        # next lines
-                        for i in range(1, 4):
+                        
+                        for i in range(1, self.rule_object.lines+1):
                             i_idx = idx + i
                             if i_idx in idxs:
                                 continue
@@ -267,14 +90,145 @@ class Engine(object):
                                 continue
                             if codes[i_idx].strip() == '':
                                 continue
-                            logger.debug('N:{x}/{l}: {c}'.format(x=i_idx, l=codes_len, c=codes[i_idx]))
+
                             idxs.append(i_idx)
                             match_codes.append(codes[i_idx])
             return match_codes
-        else:
-            # 匹配前20行
-            return self.code.splitlines()[0:20]
+        return []
 
+#     去除仓库常规误报
+    def _exclude_repository(self):
+        ret = False
+        full_path = '{repository}/{path}'.format(repository=self.name.lower(), path=self.path.lower())
+        for err in self.repo:
+            if re.search(err, full_path) is not None:
+                return True
+        return ret
+
+#     去除代码常规误报
+    def _exclude_codes(self):
+        ret = False
+        for ecr in self.codes:
+            if re.search(ecr, '\n'.join(self.code)) is not None:
+                return True
+        return ret
+
+#     按页对结果进行处理
+    def process_pages(self, pages_content, page, total):
+        time.sleep(0.1)
+        rate_limiting = self.g.rate_limiting
+        rate_limiting_reset_time = self.g.rate_limiting_resettime
+        for index, content in enumerate(pages_content):
+            current_i = page * self.per_page + index
+            time.sleep(0.1)
+            try:
+                time.sleep(0.01)
+                self.url  = content.html_url.strip()
+                time.sleep(0.01)
+                self.sha  = content.sha.strip()
+                time.sleep(0.01)
+                self.path = content.path.strip()
+                time.sleep(0.01)
+                self.name = content.repository.full_name.strip()
+                time.sleep(0.01)
+                self.code = content.decoded_content.decode('utf-8')
+            except Exception as e:
+                continue
+
+#             对相同文件进行去重
+            with DB.connection_context():
+                try:
+                    hashlist.insert({'unique':self.sha}).execute()
+                except Exception as e:
+                    continue
+
+            self.code = self.match_codes()
+            if len(self.code) == 0:
+                continue
+
+            result = {
+                'url': self.url,
+                'match_codes': self.code,
+                'hash': self.sha,
+                'code': self.code,
+                'repository': self.name,
+                'path': self.path,
+            }
+            
+            print (result)
+
+            if self._exclude_repository():
+                continue
+
+            if self._exclude_codes():
+                self.exclude_result[current_i] = result
+            else:
+                self.result[current_i] = result
+
+        return True
+
+#     检验用户账号可用性
+    def verify(self):
+        try:
+            ret = self.g.rate_limiting
+            return True, 'TOKEN-PASSED: {r}'.format(r=ret)
+        except GithubException as e:
+            return False, 'TOKEN-FAILED: {r}'.format(r=e)
+
+#     搜索进程主体
+    def search(self, rule_object):
+        self.rule_object = rule_object
+        if self.rule_object.extension is not None:
+            for ext in self.rule_object.extension.split(','):
+                try:
+                    time.sleep(0.1)
+                    rate_limiting = self.g.rate_limiting
+                    rate_limiting_reset_time = self.g.rate_limiting_resettime
+                    ext_query = 'extension:{ext} '.format(ext=ext.strip().lower())
+                    keyword = '{keyword} {ext}'.format(keyword=self.rule_object.keyword, ext=ext_query)
+                    time.sleep(0.1)
+                    resource = self.g.search_code(keyword, sort="indexed", order="desc")
+                    total = resource.totalCount
+                except GithubException as e:
+                    return False, self.rule_object, msg
+
+                print (total)
+                if total < self.per_page:
+                    pages = 1
+                elif total > 1000:
+                    pages = self.pages
+                else:
+                    pages = int(total/self.per_page)
+                for page in range(pages):
+                    self.result = {}
+                    self.exclude_result = {}
+                    time.sleep(0.1)
+                    try:
+                        pages_content = resource.get_page(page)
+                    except socket.timeout:
+                        continue
+                    except GithubException as e:
+                        return False, self.rule_object, msg
+
+                    print (pages_content)
+                    if not self.process_pages(pages_content, page, total):
+                        break
+
+                    for key, value in self.result.items():
+                        unique = json.dumps({'url':re.findall(regex_url, value['url'])[0], 'keyword':self.rule_object.corp}).encode('utf-8')
+                        data = {
+                            'unique':hashlib.md5(unique).hexdigest()
+                            ,'url':re.findall(regex_url, value['url'])[0]
+                            ,'name':self.rule_object.corp
+                            ,'keyword':self.rule_object.keyword
+                            ,'count':value['match_codes']
+                        }
+                        with DB.connection_context():
+                            repository.insert(data).on_conflict_ignore().execute()
+
+        return True, self.rule_object, len(self.result)
+
+#     分割关键词
     def _keywords(self):
         if '"' not in self.rule_object.keyword and ' ' in self.rule_object.keyword:
             return self.rule_object.keyword.split(' ')
@@ -284,23 +238,21 @@ class Engine(object):
             else:
                 return [self.rule_object.keyword]
 
-    def _mail(self):
-        logger.info('[{k}] mail rule'.format(k=self.rule_object.keyword))
+    def _mail(self, codes):
         match_codes = []
         mails = []
-        # 找到所有邮箱地址
-        # TODO 此处可能存在邮箱账号密码是加密的情况，导致取不到邮箱地址
-        mail_multi = re.findall(regex_mail, self.code)
+#         找到所有邮箱地址
+        mail_multi = re.findall(regex_mail, codes)
         for mm in mail_multi:
             mail = mm.strip().lower()
             if mail in mails:
-                logger.info('[SKIPPED] Mail already processed!')
                 continue
+            
             host = re.findall(regex_host, mail)
             host = host[0].strip()
-            if host in public_mail_services:
-                logger.info('[SKIPPED] Public mail services!')
+            if host in self.mail:
                 continue
+            
             mails.append(mail)
 
             # get mail host's title
@@ -309,8 +261,8 @@ class Engine(object):
                 try:
                     top_domain = get_tld(host, fix_protocol=True)
                 except Exception as e:
-                    logger.warning('get top domain exception {msg}'.format(msg=e))
                     top_domain = host
+                
                 if top_domain == host:
                     domain = 'http://www.{host}'.format(host=host)
                 else:
@@ -338,26 +290,4 @@ class Engine(object):
                 title = '<Inner IP>'
 
             match_codes.append("{mail} {domain} {title}".format(mail=mail, domain=domain, title=title))
-            logger.info(' - {mail} {domain} {title}'.format(mail=mail, domain=domain, title=title))
         return match_codes
-
-    def _exclude_repository(self):
-        """
-        Exclude some repository(e.g. github.io blog)
-        :return:
-        """
-        ret = False
-        # 拼接完整的项目链接
-        full_path = '{repository}/{path}'.format(repository=self.full_name.lower(), path=self.path.lower())
-        for err in exclude_repository_rules:
-            if re.search(err, full_path) is not None:
-                return True
-        return ret
-
-    @staticmethod
-    def _exclude_codes(codes):
-        ret = False
-        for ecr in exclude_codes_rules:
-            if re.search(ecr, '\n'.join(codes)) is not None:
-                return True
-        return ret

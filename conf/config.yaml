@@ -1,24 +1,71 @@
 ---
-mail:
-    enable: false
-    host: smtp.exmail.qq.com
-    port: 25
-    mails: your_mail
-    from: GSIL
-    password: your_password
-    to: goofts@zl.com
-    cc: goofts@zl.com
+clone: false
+pages: 20
 
 github:
-    clone: false
-    tokens:
-        - your_github_token
+    users:
+        - goofts:
+            name: goofts
+            passwd: Jokers@Hacker1219
 
 datase:
     type: sqlite
     ip: 127.0.0.1
     port: 0
-    path: db
-    name: dev
-    connections: 8
     timeout: 300
+
+repo:
+    - '(github.io)|(github.com)$'
+    - '(app/src/main)'
+    - '(crawler)|(spider)|(scrapy)|(爬虫)'
+    - '((开发文档)|(api))'
+    - '(jquery)|(contact)|(readme)|(authors)'
+    - '(surge)|(adblock)|(hosts)|(\.pac)|(ads)|(blacklist)|(package\.json)|(podspec\.json)|(tracking_servers)'
+    - '(linux_command_set)|(domains)|(sdk)|(linux)|(\.html)|(\.apk)|(domain-list)|(easylist)|(urls)|(easylist)|(http_analytic)|(filtersregistry)|(PhyWall\.java)'
+
+codes:
+    - '(href)'
+    - '(iframe\ src)'
+    - '(mailto:)'
+    - '(\]\()'
+    - '(npm\.taobao\.org)'
+    - '(HOST-SUFFIX)|(DOMAIN-SUFFIX)'
+
+mail:
+    - 'msg.com'
+    - '126.com'
+    - '139.com'
+    - '163.com'
+    - 'qq.com'
+    - 'vip.qq.com'
+    - 'gmail.com'
+    - 'sina.com.cn'
+    - 'sina.com'
+    - 'aliyun.com'
+    - 'sohu.com'
+    - 'yeah.net'
+    - 'msn.com'
+    - 'mail.com'
+    - 'outlook.com'
+    - 'live.com'
+    - 'foxmail.com'
+    - 'mai.com'
+    - 'example.com'
+    - 'example.org'
+    - 'yourdomain.com'
+    - 'domain.com'
+    - 'company.com'
+    - 'otherdomain.com'
+    - 'mydomain.com'
+    - 'host.com'
+    - 'yourhost.com'
+    - 'domain.tld'
+    - 'foo.bar'
+    - 'bar.com'
+    - 'dom.ain'
+    - 'localhost.com'
+    - 'xxxxx.com'
+    - 'xxxx.com'
+    - 'xxx.com'
+    - 'xx.com'
+    - 'email.com'

@@ -1,0 +1,19 @@
+[supervisord]
+nodaemon=false
+pidfile=%(APP_PATH)s/supervisord.pid
+logfile=%(APP_PATH)s/tmp/supervisord.log
+logfile_maxbytes=50MB
+logfile_backups=10
+loglevel=debug
+
+[unix_http_server]
+file=%(APP_PATH)s/tmp/supervisord.sock
+
+[supervisorctl]
+serverurl=unix://%(APP_PATH)s/tmp/supervisord.sock
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+[include]
+files = %(APP_PATH)s/app.ini

@@ -1,6 +1,11 @@
 ---
 test:
-    mogujie.com:
-        "\"mogujie.org\"":
+    guahao.com:
+        guahao.com:
             mode: normal-match
             ext: php,java,python,go,js,properties
+            line: 5
+        wedoctor:
+            mode: only-match
+            ext: php,java,python,go,js,properties
+            line: 5
